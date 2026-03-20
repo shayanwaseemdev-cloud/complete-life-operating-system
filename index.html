@@ -402,14 +402,9 @@ button,.btn,.ichk,.hcell,.juz-box,.chain-dot,.iman-btn,.score-btn,.sb-item,.mnav
 }
 
 </style>
-
-
 </head>
 <body>
 <div id="toast"></div>
-
-
-
 
 <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 <button class="hamburger" id="hamburgerBtn" onclick="toggleSidebar()" aria-label="Menu">
@@ -434,7 +429,8 @@ button,.btn,.ichk,.hcell,.juz-box,.chain-dot,.iman-btn,.score-btn,.sb-item,.mnav
     </div>
   </div>
 </nav>
-
+<!-- Cloud sync status -->
+<div id="sync-status" style="position:fixed;bottom:70px;right:12px;z-index:500;font-size:10px;font-family:Inter,sans-serif;padding:4px 10px;border-radius:20px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);display:none;transition:opacity .3s;">⚡ Syncing...</div>
 
 <div class="shell">
 
@@ -1158,8 +1154,12 @@ function loadData() {
 
 function saveData() {
   try {
-    S._savedAt = Date.now();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(S));
+    // Also save to Firebase cloud (debounced 1.5s)
+    clearTimeout(window._cloudSaveTimer);
+    window._cloudSaveTimer = setTimeout(() => {
+      if (window.saveToCloud) window.saveToCloud();
+    }, 1500);
   } catch(e) { showToast('Storage full — export backup now!'); }
 }
 
@@ -1291,14 +1291,17 @@ function tagClass(c) {
 
 function makeItemRow(text, tag, tagColor, onEdit, onDel, checkable=true) {
   const d = document.createElement('div'); d.className = 'item-row';
+  // Build static HTML parts (no closures here)
   let inner = checkable ? `<div class="ichk" onclick="chk(this)"></div>` : '';
   inner += `<div class="itxt">${text}</div>`;
   if (tag) inner += `<span class="tag ${tagClass(tagColor)}" style="flex-shrink:0;">${tag}</span>`;
+  // Placeholders for buttons - will attach listeners after innerHTML
   if (onEdit) inner += `<button class="ibtn ibtn-edit mkr-edit" title="Edit">✎</button>`;
   if (onDel)  inner += `<button class="ibtn ibtn-del mkr-del" title="Delete">✕</button>`;
   d.innerHTML = inner;
-  if (onEdit) { const b = d.querySelector('.mkr-edit'); if(b) b.addEventListener('click', onEdit); }
-  if (onDel)  { const b = d.querySelector('.mkr-del');  if(b) b.addEventListener('click', onDel); }
+  // Attach closures via addEventListener AFTER setting innerHTML (closures preserved)
+  if (onEdit) { const btn = d.querySelector('.mkr-edit'); if(btn) btn.addEventListener('click', onEdit); }
+  if (onDel)  { const btn = d.querySelector('.mkr-del');  if(btn) btn.addEventListener('click', onDel); }
   return d;
 }
 
@@ -2034,13 +2037,13 @@ function openModalWith(type,data){
     'add-dua':{title:'Add Dua',fields:[{id:'d-cat',label:'Category',type:'select',options:['morning','evening','personal','goals'],val:'personal'},{id:'d-arabic',label:'Arabic text',type:'textarea',val:''},{id:'d-trans',label:'Translation',type:'textarea',val:''},{id:'d-src',label:'Source (optional)',type:'text',val:''}],save:()=>{const cat=v('d-cat');if(!S.duas)S.duas={morning:[],evening:[],personal:[],goals:[]};if(!S.duas[cat])S.duas[cat]=[];S.duas[cat].push({arabic:v('d-arabic'),translation:v('d-trans'),source:v('d-src')});saveData();renderDuas();}},
     'add-dua-cat':{title:'Add Dua to '+data.cat,fields:[{id:'d-arabic',label:'Arabic text',type:'textarea',val:''},{id:'d-trans',label:'Translation',type:'textarea',val:''},{id:'d-src',label:'Source (optional)',type:'text',val:''}],save:()=>{if(!S.duas)S.duas={morning:[],evening:[],personal:[],goals:[]};if(!S.duas[data.cat])S.duas[data.cat]=[];S.duas[data.cat].push({arabic:v('d-arabic'),translation:v('d-trans'),source:v('d-src')});saveData();renderDuas();}},
     'add-deen':{title:'Add Deen Item',fields:[{id:'di-type',label:'Type',type:'select',options:['daily','periodic'],val:'daily'},{id:'di-text',label:'Practice',type:'text',val:''},{id:'di-freq',label:'Frequency (for periodic)',type:'text',val:'Weekly'}],save:()=>{const type=v('di-type');const obj={id:uid(),text:v('di-text')};if(type==='daily'){if(!S.deenDaily)S.deenDaily=[];S.deenDaily.push(obj);}else{if(!S.deenPeriodic)S.deenPeriodic=[];obj.freq=v('di-freq');S.deenPeriodic.push(obj);}saveData();renderDeen();}},
-    'edit-deen-item':{title:'Edit Practice',fields:[{id:'di-text',label:'Practice',type:'text',val:data.text||''},{id:'di-freq',label:'Frequency',type:'text',val:data.freq||''}],save:()=>{const arr=data.type==='daily'?S.deenDaily:S.deenPeriodic;const x=(arr||[]).find(i=>i.id===data.id);if(x){x.text=v('di-text');if(x.freq!==undefined)x.freq=v('di-freq');}saveData();renderDeen();}},
+    'edit-deen-item':{title:'Edit Practice',fields:[{id:'di-text',label:'Practice',type:'text',val:data.text||''},{id:'di-freq',label:'Frequency',type:'text',val:data.freq||''}],save:()=>{const arr=data.type==='daily'?S.deenDaily:S.deenPeriodic;const x=(arr||[]).find(i=>String(i.id)===String(data.id));if(x){x.text=v('di-text');if(x.freq!==undefined)x.freq=v('di-freq');}saveData();renderDeen();}},
     'add-training':{title:'Add Training Item',fields:[{id:'tr-txt',label:'Training item',type:'text',val:''},{id:'tr-phase',label:'Phase',type:'text',val:'Now'}],save:()=>{if(!S.trainingItems)S.trainingItems=[];S.trainingItems.push({id:uid(),text:v('tr-txt'),phase:v('tr-phase')});saveData();renderBody();}},
-    'edit-training':{title:'Edit Training',fields:[{id:'tr-txt',label:'Training item',type:'text',val:data.text||''},{id:'tr-phase',label:'Phase',type:'text',val:data.phase||''}],save:()=>{const x=(S.trainingItems||[]).find(i=>i.id===data.id);if(x){x.text=v('tr-txt');x.phase=v('tr-phase');}saveData();renderBody();}},
+    'edit-training':{title:'Edit Training',fields:[{id:'tr-txt',label:'Training item',type:'text',val:data.text||''},{id:'tr-phase',label:'Phase',type:'text',val:data.phase||''}],save:()=>{const x=(S.trainingItems||[]).find(i=>String(i.id)===String(data.id));if(x){x.text=v('tr-txt');x.phase=v('tr-phase');}saveData();renderBody();}},
     'add-pr':{title:'Add PR Milestone',fields:[{id:'pr-name',label:'Exercise',type:'text',val:''},{id:'pr-current',label:'Current best',type:'text',val:''},{id:'pr-target',label:'Target',type:'text',val:''}],save:()=>{if(!S.strengthPRs)S.strengthPRs=[];S.strengthPRs.push({id:uid(),name:v('pr-name'),current:v('pr-current'),target:v('pr-target')});saveData();renderBody();}},
     'add-nutrition':{title:'Add Nutrition Rule',fields:[{id:'nut-txt',label:'Rule',type:'text',val:''}],save:()=>{if(!S.nutritionItems)S.nutritionItems=[];S.nutritionItems.push({id:uid(),text:v('nut-txt')});saveData();renderBody();}},
     'add-wealth-habit':{title:'Add Wealth Habit',fields:[{id:'wh-txt',label:'Habit',type:'text',val:''},{id:'wh-freq',label:'Frequency',type:'select',options:['Daily','Weekly','Monthly'],val:'Daily'}],save:()=>{if(!S.wealthHabits)S.wealthHabits=[];S.wealthHabits.push({id:uid(),text:v('wh-txt'),freq:v('wh-freq')});saveData();renderWealth();}},
-    'edit-wealth':{title:'Edit Habit',fields:[{id:'wh-txt',label:'Habit',type:'text',val:data.text||''},{id:'wh-freq',label:'Frequency',type:'select',options:['Daily','Weekly','Monthly'],val:data.freq||'Daily'}],save:()=>{const x=(S.wealthHabits||[]).find(i=>i.id===data.id);if(x){x.text=v('wh-txt');x.freq=v('wh-freq');}saveData();renderWealth();}},
+    'edit-wealth':{title:'Edit Habit',fields:[{id:'wh-txt',label:'Habit',type:'text',val:data.text||''},{id:'wh-freq',label:'Frequency',type:'select',options:['Daily','Weekly','Monthly'],val:data.freq||'Daily'}],save:()=>{const x=(S.wealthHabits||[]).find(i=>String(i.id)===String(data.id));if(x){x.text=v('wh-txt');x.freq=v('wh-freq');}saveData();renderWealth();}},
     'add-skill':{title:'Add Skill',fields:[{id:'sk-name',label:'Skill name',type:'text',val:''},{id:'sk-status',label:'Status',type:'select',options:['Planned','Learning','Intermediate','Mastered'],val:'Learning'}],save:()=>{if(!S.skillStack)S.skillStack=[];S.skillStack.push({name:v('sk-name'),status:v('sk-status'),level:0});saveData();renderWealth();}},
     'add-book':{title:'Add Book',fields:[{id:'bk-month',label:'Month',type:'text',val:''},{id:'bk-title',label:'Title',type:'text',val:''},{id:'bk-author',label:'Author',type:'text',val:''}],save:()=>{if(!S.books)S.books=[];S.books.push({id:uid(),month:v('bk-month'),title:v('bk-title'),author:v('bk-author'),read:false});saveData();renderWealth();}},
     'add-knowledge':{title:'Add Knowledge Entry',fields:[{id:'kn-type',label:'Type',type:'select',options:['book','course','skill','language'],val:'book'},{id:'kn-title',label:'Title / Name',type:'text',val:''},{id:'kn-author',label:'Author / Platform',type:'text',val:''},{id:'kn-year',label:'Year completed',type:'text',val:String(currentYear)},{id:'kn-status',label:'Status',type:'select',options:['Completed','In Progress','Planned'],val:'Completed'}],save:()=>{const type=v('kn-type');const obj={id:uid(),title:v('kn-title'),author:v('kn-author'),year:v('kn-year'),status:v('kn-status')};const map={book:'knowledgeBooks',course:'knowledgeCourses',skill:'knowledgeSkills',language:'knowledgeLangs'};const key=map[type]||'knowledgeBooks';if(!S[key])S[key]=[];S[key].push(obj);saveData();renderKnowledge();}},
@@ -2103,7 +2106,6 @@ function init(){
 
 init();
 
-
 // ======================================================
 // MOBILE NAVIGATION SYSTEM
 // ======================================================
@@ -2164,8 +2166,118 @@ setTimeout(()=>{
 
 </script>
 
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
+const firebaseConfig = {
+  apiKey: "AIzaSyBA8j2uPBXF_RRLNaDZ3NZKZjeh6U06lWs",
+  authDomain: "shayan-life-os.firebaseapp.com",
+  projectId: "shayan-life-os",
+  storageBucket: "shayan-life-os.firebasestorage.app",
+  messagingSenderId: "147340773024",
+  appId: "1:147340773024:web:09c720793ddb726cf5abc5"
+};
 
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
 
+let fbUserId = null;
+let saveTimeout = null;
+let isOnline = navigator.onLine;
+
+// Fixed user ID for Shayan - single user system
+const SHAYAN_DOC_ID = 'shayan_main';
+
+function showSyncStatus(msg, color) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = color || 'var(--text2)';
+  el.style.display = 'block';
+  el.style.opacity = '1';
+  clearTimeout(window._syncHideTimer);
+  window._syncHideTimer = setTimeout(() => {
+    el.style.opacity = '0';
+    setTimeout(() => { el.style.display = 'none'; }, 300);
+  }, 3000);
+}
+
+// Sign in anonymously (silent, no password needed)
+signInAnonymously(auth).then(userCred => {
+  fbUserId = userCred.user.uid;
+  window._fbReady = true;
+  console.log('Firebase ready');
+  // Load cloud data on startup
+  loadFromCloud();
+}).catch(err => {
+  console.warn('Firebase auth failed, using localStorage only:', err);
+  window._fbReady = false;
+});
+
+async function loadFromCloud() {
+  try {
+    const docRef = doc(db, 'lifeOS', SHAYAN_DOC_ID);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const cloudData = snap.data();
+      const cloudTime = cloudData._savedAt || 0;
+      const localData = JSON.parse(localStorage.getItem('shayan_life_os_v2') || '{}');
+      const localTime = localData._savedAt || 0;
+      // Use whichever is newer
+      if (cloudTime >= localTime) {
+        // Cloud is newer or same
+        delete cloudData._savedAt;
+        window.S = { ...window.S, ...cloudData };
+        localStorage.setItem('shayan_life_os_v2', JSON.stringify(cloudData));
+        if (typeof renderPage === 'function') renderPage(currentActivePage());
+        if (typeof renderDashboard === 'function') renderDashboard();
+        showSyncStatus('✓ Loaded from cloud', 'var(--g)');
+      } else {
+        // Local is newer, push to cloud
+        saveToCloud();
+        showSyncStatus('✓ Local data is current', 'var(--g)');
+      }
+    } else {
+      // No cloud data yet, push local
+      saveToCloud();
+    }
+  } catch (err) {
+    console.warn('Cloud load failed:', err);
+    showSyncStatus('⚠ Offline mode', 'var(--a)');
+  }
+}
+
+async function saveToCloud() {
+  if (!window._fbReady) return;
+  try {
+    const dataToSave = { ...window.S, _savedAt: Date.now() };
+    const docRef = doc(db, 'lifeOS', SHAYAN_DOC_ID);
+    await setDoc(docRef, dataToSave);
+    showSyncStatus('✓ Saved to cloud', 'var(--g)');
+  } catch (err) {
+    console.warn('Cloud save failed:', err);
+    showSyncStatus('⚠ Saved locally only', 'var(--a)');
+  }
+}
+
+// Expose to global so saveData() can call it
+window.saveToCloud = saveToCloud;
+window.loadFromCloud = loadFromCloud;
+
+// Network status
+window.addEventListener('online', () => {
+  isOnline = true;
+  saveToCloud();
+  showSyncStatus('✓ Back online — synced', 'var(--g)');
+});
+window.addEventListener('offline', () => {
+  isOnline = false;
+  showSyncStatus('⚠ Offline — saving locally', 'var(--a)');
+});
+
+</script>
 
 </body></html>
